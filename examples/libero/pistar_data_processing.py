@@ -1,5 +1,5 @@
 """
-Pistar 数据处理流程脚本，支持复杂的 reward/value/adv/epsilon 计算
+Pistar 数据处理流程脚本，将rlds格式转化为lerobot格式，支持复杂的 reward/value/adv/epsilon 计算
 
 处理流程：
 1. Pass 1: 加载所有数据，转换 reward，计算 value
@@ -46,6 +46,9 @@ import tensorflow_datasets as tfds
 import numpy as np
 import tyro
 
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')
+print("🔧 TensorFlow configured to use CPU only (PyTorch will use GPU)")
 
 REPO_NAME = "ybpy/libero_pistar"
 RAW_DATASET_NAMES = [

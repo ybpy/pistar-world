@@ -42,7 +42,7 @@ python -u examples/libero/pistar_data_processing_optimized.py ...
 
 import os
 # 禁用 GPU（此脚本只需要 CPU）
-os.environ['CUDA_VISIBLE_DEVICES'] = ''
+# os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 import shutil
 from pathlib import Path
@@ -55,6 +55,9 @@ import tensorflow_datasets as tfds
 import numpy as np
 import tyro
 
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')
+print("🔧 TensorFlow configured to use CPU only (PyTorch will use GPU)")
 
 REPO_NAME = "ybpy/libero_pistar"
 RAW_DATASET_NAMES = [
