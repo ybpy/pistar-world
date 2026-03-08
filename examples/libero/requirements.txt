@@ -32,7 +32,8 @@ importlib-resources==6.4.5
     # via etils
 kiwisolver==1.4.7
     # via matplotlib
-llvmlite==0.36.0
+llvmlite==0.46.0
+    #==0.36.0
     # via numba
 markdown-it-py==3.0.0
     # via rich
@@ -42,7 +43,8 @@ mdurl==0.1.2
     # via markdown-it-py
 mujoco==3.2.3
     # via robosuite
-numba==0.53.1
+numba==0.64.0
+    #==0.53.1
     # via robosuite
 numpy==1.22.4
     # via
@@ -134,3 +136,9 @@ zipp==3.20.2
     #   etils
     #   importlib-metadata
     #   importlib-resources
+
+# dependencies for lerobot deployment in libero rollout
+datasets==4.6.1
+jsonlines==4.0.0
+draccus==0.11.5
+av==16.1.0
