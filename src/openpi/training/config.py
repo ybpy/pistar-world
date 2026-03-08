@@ -864,7 +864,7 @@ _CONFIGS = [
     ),
     TrainConfig(
         name="pi05_libero",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=True),
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
         data=LeRobotLiberoDataConfig(
             repo_id="physical-intelligence/libero",
             base_config=DataConfig(prompt_from_task=True),
@@ -889,8 +889,8 @@ _CONFIGS = [
     TrainConfig(
         name="pi05_toy_33",
         project_name="pistar",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=True),
-        data=LeRobotPiperDataConfig(
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotLiberoDataConfig(
             repo_id="ybpy/toy_33",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
@@ -899,7 +899,7 @@ _CONFIGS = [
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=1_000,
             peak_lr=2e-4,
-            decay_steps=8_000,
+            decay_steps=10_000,
             decay_lr=2e-5,
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
@@ -914,8 +914,8 @@ _CONFIGS = [
     TrainConfig(
         name="pi05_toy_33_infer",
         project_name="pistar",
-        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=10, discrete_state_input=True),
-        data=LeRobotPiperDataConfig(
+        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotLiberoDataConfig(
             repo_id="ybpy/toy_33",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
@@ -926,7 +926,7 @@ _CONFIGS = [
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=1_000,
             peak_lr=2e-4,
-            decay_steps=8_000,
+            decay_steps=10_000,
             decay_lr=2e-5,
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
@@ -940,7 +940,7 @@ _CONFIGS = [
     TrainConfig(
         name="pi05_star_libero",
         project_name="pistar",
-        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=10, discrete_state_input=True),
+        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=10, discrete_state_input=False),
         data=LeRobotLiberoDataConfig(
             repo_id="ybpy/libero_pistar",
             base_config=DataConfig(prompt_from_task=True),
@@ -964,7 +964,7 @@ _CONFIGS = [
     TrainConfig(
         name="pi05_star_libero_infer",
         project_name="pistar",
-        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=10, discrete_state_input=True),
+        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=10, discrete_state_input=False),
         data=LeRobotLiberoDataConfig(
             repo_id="ybpy/libero_pistar",
             base_config=DataConfig(prompt_from_task=True),
@@ -990,8 +990,8 @@ _CONFIGS = [
     TrainConfig(
         name="pi05_star_toy_33",
         project_name="pistar",
-        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=10, discrete_state_input=True),
-        data=LeRobotPiperDataConfig(
+        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotLiberoDataConfig(
             repo_id="ybpy/toy_33_pistar_all_positive",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
@@ -1014,8 +1014,8 @@ _CONFIGS = [
     TrainConfig(
         name="pi05_star_toy_33_infer",
         project_name="pistar",
-        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=10, discrete_state_input=True),
-        data=LeRobotPiperDataConfig(
+        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotLiberoDataConfig(
             repo_id="ybpy/toy_33_pistar_all_positive",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
@@ -1026,15 +1026,15 @@ _CONFIGS = [
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=1_000,
             peak_lr=2e-4,
-            decay_steps=8_000,
+            decay_steps=10_000,
             decay_lr=2e-5,
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader("/public/home/chenyuyao1/model/pi05_base/params"),
         pytorch_weight_path="/path/to/your/pytorch_weight_path",
-        num_train_steps=30_000,
-        keep_period=10_000,
+        num_train_steps=8_000,
+        keep_period=1_000,
     ),
     #
     # Fine-tuning Aloha configs.
