@@ -235,6 +235,7 @@ def eval_libero(args: Args) -> None:
 
         # Get default LIBERO initial states
         initial_states = task_suite.get_task_init_states(task_id)
+        num_initial_states = len(initial_states)
 
         # Initialize LIBERO environment and task description
         env, task_description = _get_libero_env(task, LIBERO_ENV_RESOLUTION, args.seed)
@@ -249,7 +250,7 @@ def eval_libero(args: Args) -> None:
             action_plan = collections.deque()
 
             # Set initial states
-            obs = env.set_init_state(initial_states[episode_idx])
+            obs = env.set_init_state(initial_states[episode_idx % num_initial_states])
 
             # Setup
             t = 0
