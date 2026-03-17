@@ -43,8 +43,16 @@ class PaligemmaTokenizer:
         else:
             # This is the Pi0 format, where the state is part of the continuous action expert input.
             # tokenize "\n" separately as the "start of answer" token
-            # TODO: support adv_ind in Pi0 format if needed
-            tokens = self._tokenizer.encode(cleaned_text, add_bos=True) + self._tokenizer.encode("\n")
+            if adv_ind is not None:
+                # Advantage dropout: 30% probability of not using adv_ind during training only
+                # Use numpy.random to ensure reproducibility with np.random.seed()
+                if adv_ind_dropout and np.random.random() < 0.3:
+                    full_prompt = f"Task: {cleaned_text};\nAction: "
+                else:
+                    full_prompt = f"Task: {cleaned_text}, Advantage: {adv_ind};\nAction: "
+            else:
+                full_prompt = f"Task: {cleaned_text}, State: {state_str};\nAction: "
+            tokens = self._tokenizer.encode(full_prompt, add_bos=True)
         tokens_len = len(tokens)
         if tokens_len < self._max_len:
             padding = [False] * (self._max_len - tokens_len)
