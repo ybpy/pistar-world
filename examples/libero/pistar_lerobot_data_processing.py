@@ -44,6 +44,7 @@ python -u examples/libero/pistar_lerobot_data_processing.py ...
 """
 
 import shutil
+import io
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Tuple, Optional
@@ -52,10 +53,86 @@ from lerobot.common.datasets.lerobot_dataset import HF_LEROBOT_HOME
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 import numpy as np
 import tyro
+from PIL import Image
 
 from datasets.features.features import _FEATURE_TYPES, Sequence
 if "List" not in _FEATURE_TYPES:
     _FEATURE_TYPES["List"] = Sequence
+
+
+def _get_raw_hf_dataset(dataset: LeRobotDataset):
+    """Disable default torch transform to support non-tensor fields (e.g. dict)."""
+    if dataset.hf_dataset is None:
+        raise ValueError("LeRobotDataset.hf_dataset is not initialized.")
+    # NOTE: In current `datasets`, set_transform(None) leaves a callable slot as None and breaks indexing.
+    # reset_format() correctly clears custom transforms.
+    dataset.hf_dataset.reset_format()
+    return dataset.hf_dataset
+
+
+def _to_numpy_float32(value):
+    """Convert list/torch/ndarray values to float32 numpy arrays."""
+    if isinstance(value, np.ndarray):
+        return value.astype(np.float32, copy=False)
+    # Optional torch dependency; convert tensors when present.
+    try:
+        import torch
+
+        if isinstance(value, torch.Tensor):
+            return value.detach().cpu().numpy().astype(np.float32, copy=False)
+    except Exception:
+        pass
+    return np.asarray(value, dtype=np.float32)
+
+
+def _to_numpy_int64(value):
+    """Convert list/torch/ndarray/scalar values to int64 numpy arrays."""
+    if isinstance(value, np.ndarray):
+        return value.astype(np.int64, copy=False)
+    try:
+        import torch
+
+        if isinstance(value, torch.Tensor):
+            return value.detach().cpu().numpy().astype(np.int64, copy=False)
+    except Exception:
+        pass
+    return np.asarray(value, dtype=np.int64)
+
+
+def _to_image_array(value):
+    """Convert image-like values (PIL/np/tensor/arrow dict) to uint8 HWC numpy array."""
+    if isinstance(value, np.ndarray):
+        img = value
+    elif isinstance(value, Image.Image):
+        img = np.asarray(value.convert("RGB"))
+    elif isinstance(value, dict):
+        if value.get("bytes") is not None:
+            img = np.asarray(Image.open(io.BytesIO(value["bytes"])).convert("RGB"))
+        elif value.get("path"):
+            img = np.asarray(Image.open(value["path"]).convert("RGB"))
+        else:
+            raise ValueError(f"Unsupported image dict keys: {list(value.keys())}")
+    else:
+        try:
+            import torch
+
+            if isinstance(value, torch.Tensor):
+                img = value.detach().cpu().numpy()
+            else:
+                img = np.asarray(value)
+        except Exception:
+            img = np.asarray(value)
+
+    # Convert CHW -> HWC if needed.
+    if img.ndim == 3 and img.shape[0] in (1, 3, 4) and img.shape[-1] not in (1, 3, 4):
+        img = np.transpose(img, (1, 2, 0))
+
+    if img.dtype != np.uint8:
+        if np.issubdtype(img.dtype, np.floating) and np.nanmax(img) <= 1.0:
+            img = (img * 255.0).clip(0, 255).astype(np.uint8)
+        else:
+            img = np.nan_to_num(img).clip(0, 255).astype(np.uint8)
+    return img
 
 
 def transform_reward(original_reward: float, is_terminal: bool, is_last: bool, episode_length: int) -> float:
@@ -154,6 +231,7 @@ def main(
     value_model_path: str | None = None,
     default_value: float = 0.0,
     default_adv_ind: str | None = None,
+    default_intervention: int | None = None,
     epsilon_percentile: float = 70.0,
     push_to_hub: bool = False,
 ):
@@ -170,6 +248,7 @@ def main(
         default_value: 默认 value 值 (范围 [-1.0, 0.0]，默认 0.0)
         default_adv_ind: 默认 adv_ind 值 ("positive" 或 "negative")，
                         如果设置，将跳过 adv 和 epsilon 计算
+        default_intervention: 默认 intervention 值（仅当输入数据缺失该字段时写入）
         epsilon_percentile: epsilon 的分位数 (默认 70.0)
         push_to_hub: 是否推送到 HuggingFace Hub
     """
@@ -185,6 +264,8 @@ def main(
         print(f"Default adv_ind: {default_adv_ind} (跳过 adv 计算)")
     else:
         print(f"Epsilon percentile: {epsilon_percentile}%")
+    if default_intervention is not None:
+        print(f"Default intervention: {default_intervention}")
     
     # ========================================================================
     # Pass 1: 加载所有数据，转换 reward，计算 value
@@ -196,6 +277,7 @@ def main(
     # 加载输入数据集
     print(f"Loading input dataset: {input_repo_id}")
     input_dataset = LeRobotDataset(input_repo_id)
+    raw_hf_dataset = _get_raw_hf_dataset(input_dataset)
     
     print(f"Dataset info:")
     print(f"  Total frames: {len(input_dataset)}")
@@ -232,7 +314,7 @@ def main(
         # 读取该 episode 的所有步骤
         for step_idx in range(episode_length):
             frame_idx = episode_indices + step_idx
-            frame = input_dataset[frame_idx]
+            frame = raw_hf_dataset[frame_idx]
             
             # 获取 task (假设存在 task 字段)
             if step_idx == 0:
@@ -343,6 +425,12 @@ def main(
     
     # 构建新的 features（保留原始 features + 添加新 features）
     new_features = dict(input_dataset.features)
+    if default_intervention is not None and "intervention" not in new_features:
+        new_features["intervention"] = {
+            "dtype": "int64",
+            "shape": (1,),
+            "names": ["intervention_flag"],
+        }
     
     # 添加 PiStar 相关的 features
     new_features.update({
@@ -415,6 +503,15 @@ def main(
             # 需要移除 LeRobot 自动生成的系统字段
             system_fields = {'index', 'task_index', 'episode_index', 'frame_index', 'timestamp'}
             new_frame = {k: v for k, v in step_data['frame'].items() if k not in system_fields}
+            # Normalize field types to match LeRobot feature schema.
+            new_frame["image"] = _to_image_array(new_frame["image"])
+            new_frame["wrist_image"] = _to_image_array(new_frame["wrist_image"])
+            new_frame["state"] = _to_numpy_float32(new_frame["state"])
+            new_frame["actions"] = _to_numpy_float32(new_frame["actions"])
+            if "intervention" in new_frame:
+                new_frame["intervention"] = _to_numpy_int64(new_frame["intervention"])
+            elif default_intervention is not None:
+                new_frame["intervention"] = np.asarray([default_intervention], dtype=np.int64)
             
             # 添加 task 和新的 PiStar 字段
             new_frame.update({
