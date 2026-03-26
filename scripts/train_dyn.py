@@ -345,7 +345,7 @@ def main():
                 logging.info("Saved checkpoint: %s", ckpt_path)
 
                 if args.wandb_enabled:
-                    wandb.log({"train/checkpoint_epoch": int(epoch)}, step=epoch)
+                    wandb.log({"train/checkpoint_epoch": int(epoch)}, step=global_step)
     finally:
         if args.wandb_enabled and wandb_run is not None:
             wandb.finish()
