@@ -381,6 +381,31 @@ def merge_args(cfg, cli_args):
     return cfg
 
 
+def build_optimizer(model, args):
+    base_lr = float(args.learning_rate)
+    unet_lr = float(args.unet_learning_rate) if args.unet_learning_rate is not None else base_lr
+    action_encoder_lr = (
+        float(args.action_encoder_learning_rate)
+        if args.action_encoder_learning_rate is not None
+        else base_lr
+    )
+
+    unet_params = [p for p in model.unet.parameters() if p.requires_grad]
+    action_encoder_params = [p for p in model.action_encoder.parameters() if p.requires_grad]
+
+    if len(unet_params) == 0 and len(action_encoder_params) == 0:
+        raise ValueError("No trainable params found in model.unet and model.action_encoder")
+
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": unet_params, "lr": unet_lr, "name": "unet"},
+            {"params": action_encoder_params, "lr": action_encoder_lr, "name": "action_encoder"},
+        ],
+        lr=base_lr,
+    )
+    return optimizer
+
+
 def build_parser() -> ArgumentParser:
     # Parser only provides optional overrides for config_wm.py defaults.
     # default=None means: do not override config default unless CLI explicitly sets it.
@@ -397,6 +422,8 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--dataset_cfgs", type=str, default=None)
     parser.add_argument("--output_dir", type=str, default=None)
     parser.add_argument("--sat_mode", type=int, default=None)
+    parser.add_argument("--unet_learning_rate", type=float, default=None)
+    parser.add_argument("--action_encoder_learning_rate", type=float, default=None)
 
     return parser
 
@@ -458,7 +485,7 @@ def main(args):
     model.to(accelerator.device)
     model.train()
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    optimizer = build_optimizer(model, args)
 
     train_dataset = LiberoWMDataset(args, mode="train")
     val_dataset = LiberoWMDataset(args, mode="val")
@@ -532,9 +559,15 @@ def main(args):
                         progress_bar.set_postfix({"loss": smooth_loss})
 
                         if accelerator.is_main_process and bool(getattr(args, "wandb_enabled", False)) and wandb_run is not None:
+                            group_lr = {
+                                str(g.get("name", f"group_{i}")): float(g["lr"])
+                                for i, g in enumerate(optimizer.param_groups)
+                            }
                             payload = {
                                 "train/loss": smooth_loss,
-                                "train/lr": float(optimizer.param_groups[0]["lr"]),
+                                "train/lr": float(args.learning_rate),
+                                "train/lr_unet": group_lr.get("unet"),
+                                "train/lr_action_encoder": group_lr.get("action_encoder"),
                                 "train/step": int(global_step),
                             }
                             if grad_norm_value is not None:
