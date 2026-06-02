@@ -112,6 +112,20 @@ Then start training:
 XLA_PYTHON_CLIENT_PREALLOCATE=true XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py pi05_star_libero --exp-name=demo_init --overwrite
 ```
 
+If loading the `pi05_base` checkpoint from the cloud (`gs://openpi-assets/checkpoints/pi05_base`) fails, you can manually download the model weights to a local path before training:
+
+```bash
+pip install gsutil
+
+mkdir -p /path/to/pi05_base
+
+gsutil -m rsync -r \
+  gs://openpi-assets/checkpoints/pi05_base \
+  /path/to/pi05_base
+```
+
+After the download is complete, modify the `weight_loader` path of the corresponding `TrainConfig` in `pistar/src/openpi/training/config.py` to the local checkpoint path `/path/to/pi05_base/params`, then you can start training.
+
 If you want to continue training an existing experiment, replace `--overwrite` with `--resume`:
 
 ```bash
