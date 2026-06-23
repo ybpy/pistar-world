@@ -118,7 +118,7 @@ class ValueDataset(TorchDataset):
 
         # 不在这里初始化 tokenizer，延迟到实际使用时
         self.tokenizer = None
-        self.tokenizer_path = "/public/home/wangsenbao_it/litianheng/checkpoint/tokenizer.model"
+        self.tokenizer_path = "/public/home/chenyuyao1/.cache/openpi/big_vision/paligemma_tokenizer.model"
         self._tokenized_task_cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}
 
     def _init_gemma3_tokenizer(self):
@@ -133,7 +133,7 @@ class ValueDataset(TorchDataset):
         from gemma.gm.text._tokenizer import Gemma3Tokenizer
 
         # 使用本地的 tokenizer.model 文件
-        local_tokenizer_path = "/public/home/wangsenbao_it/litianheng/checkpoint/tokenizer.model"
+        local_tokenizer_path = "/public/home/chenyuyao1/.cache/openpi/big_vision/paligemma_tokenizer.model"
         self.tokenizer = Gemma3Tokenizer(path=local_tokenizer_path)
         logger.info(console.ok(f"成功加载本地 Gemma3Tokenizer: {local_tokenizer_path}"))
 
@@ -220,9 +220,11 @@ class ValueDataset(TorchDataset):
             },
             "tokenized_prompt": tokenized_prompt,
             "tokenized_prompt_mask": prompt_mask,
-            # Value model 不需要 state
-            # "state": state,
+            "state": np.zeros(8, dtype=np.float32),  # placeholder required by Observation.from_dict
             "value": value,
+            "episode_index": np.int64(row["episode_index"]),
+            "frame_index": np.int64(row["frame_index"]),
+            "index": np.int64(row["index"]),
         }
 
         result["image"]["wrist_0_rgb"] = wrist_image

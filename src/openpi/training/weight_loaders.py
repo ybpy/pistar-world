@@ -311,8 +311,10 @@ class ValueModelWeightLoader(WeightLoader):
 
     def load(self, params: at.Params) -> at.Params:
         logger.info(console.info("加载 SigLIP 权重 (from local checkpoint)..."))
-        #siglip_path = "/data/train_dataset/checkpoint/siglip2-so400m-patch14-384-jax/siglip2_so400m14_224.npz"
-        siglip_path = "/public/home/wangsenbao_it/litianheng/checkpoint/siglip2-so400m-patch14-224-jax/siglip2_so400m14_224.npz"
+        siglip_path = os.environ.get(
+            "VLM_SIGLIP_PATH",
+            "/public/home/chenyuyao1/.cache/openpi/vlm_ckpt/siglip2-so400m-patch14-224-jax/siglip2_so400m14_224.npz",
+        )
         siglip_params = None
         if bv_utils is not None:
             try:
@@ -336,8 +338,10 @@ class ValueModelWeightLoader(WeightLoader):
             _summarize_param_match("SigLIP", siglip_params, params["img"])
 
         logger.info(console.info("加载 Gemma 3 270M 权重 (from local Orbax checkpoint)..."))
-        gemma_checkpoint_dir = "/public/home/wangsenbao_it/litianheng/checkpoint/gemma-3-270m"
-        #gemma_checkpoint_dir = "/data/train_dataset/checkpoint/gemma-3-270m"
+        gemma_checkpoint_dir = os.environ.get(
+            "VLM_GEMMA_PATH",
+            "/public/home/chenyuyao1/.cache/openpi/vlm_ckpt/gemma-3-270m",
+        )
 
         # 使用 Gemma 官方 ckpts loader（优先），必要时回退 Orbax
         try:

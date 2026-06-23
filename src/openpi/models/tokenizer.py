@@ -51,7 +51,7 @@ class PaligemmaTokenizer:
                 else:
                     full_prompt = f"Task: {cleaned_text}, Advantage: {adv_ind};\nAction: "
             else:
-                full_prompt = f"Task: {cleaned_text}, State: {state_str};\nAction: "
+                full_prompt = f"Task: {cleaned_text};\nAction: "
             tokens = self._tokenizer.encode(full_prompt, add_bos=True)
         tokens_len = len(tokens)
         if tokens_len < self._max_len:

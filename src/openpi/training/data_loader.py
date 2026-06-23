@@ -38,9 +38,53 @@ def _hf_transform_to_torch_allow_dict(items_dict: dict):
                 items_dict[key] = [to_tensor(img) for img in items_dict[key]]
         elif first_item is None:
             pass
+        elif isinstance(first_item, bytes):
+            # Bytes columns: could be encoded images (PNG/JPEG) or serialized numpy arrays
+            # Check if it looks like an image (PNG magic: \x89PNG, JPEG magic: \xff\xd8)
+            if first_item[:4] == b'\x89PNG' or first_item[:2] == b'\xff\xd8':
+                # Encoded image — decode to tensor
+                import io
+                decoded = []
+                for img_bytes in items_dict[key]:
+                    if isinstance(img_bytes, bytes):
+                        pil_img = PILImage.open(io.BytesIO(img_bytes)).convert("RGB")
+                        if to_tensor is None:
+                            decoded.append(torch.tensor(np.asarray(pil_img)).permute(2, 0, 1) / 255.0)
+                        else:
+                            decoded.append(to_tensor(pil_img))
+                    else:
+                        decoded.append(img_bytes)
+                items_dict[key] = decoded
+            else:
+                # Serialized numpy array (state, actions, etc.) — decode to tensor
+                items_dict[key] = [
+                    torch.from_numpy(np.frombuffer(x, dtype=np.float32).copy())
+                    if isinstance(x, bytes) else x
+                    for x in items_dict[key]
+                ]
         elif isinstance(first_item, dict):
-            # 例如 {"bytes": ...} 或 {"path": ...}，交给后续 ValueInputs 解析
-            items_dict[key] = items_dict[key]
+            # LeRobot image features may arrive as {"bytes": ...} or {"path": ...}.
+            # Decode them here so RepackTransform still sees a scalar top-level
+            # image value instead of flattening the nested dict away.
+            import io
+
+            decoded = []
+            for item in items_dict[key]:
+                if not isinstance(item, dict):
+                    decoded.append(item)
+                    continue
+                if item.get("bytes") is not None:
+                    pil_img = PILImage.open(io.BytesIO(item["bytes"])).convert("RGB")
+                elif item.get("path") is not None:
+                    pil_img = PILImage.open(item["path"]).convert("RGB")
+                else:
+                    decoded.append(item)
+                    continue
+                if to_tensor is None:
+                    decoded.append(torch.tensor(np.asarray(pil_img)).permute(2, 0, 1) / 255.0)
+                else:
+                    decoded.append(to_tensor(pil_img))
+            items_dict[key] = decoded
         else:
             items_dict[key] = [x if isinstance(x, str) else torch.tensor(x) for x in items_dict[key]]
     return items_dict
@@ -171,13 +215,37 @@ def create_torch_dataset(
     if repo_id == "fake":
         return FakeDataset(model_config, num_samples=1024)
 
-    dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
-    dataset = lerobot_dataset.LeRobotDataset(
-        repo_id,
-        delta_timestamps={
-            key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
-        },
-    )
+    # Local data directory: use ValueDataset directly (bypasses LeRobot hub API)
+    # ValueDataset already handles task text → prompt tokenization internally
+    if data_config.local_data_dir is not None:
+        from openpi.training.value_data_loader import ValueDataset
+        return ValueDataset(repo_id, max_token_len=48)
+
+    # Support local paths: if repo_id is an absolute filesystem path, pass root=repo_id
+    # so LeRobot looks for metafiles (meta/) in the right directory
+    if os.path.isabs(repo_id):
+        dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id, root=repo_id)
+    else:
+        dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
+
+    # Support local paths: if repo_id is an absolute filesystem path, pass root=repo_id
+    # so LeRobotDataset looks for parquet files in the right directory
+    # (by default it derives root from HF_HOME/repo_id which fails for local paths)
+    if os.path.isabs(repo_id):
+        dataset = lerobot_dataset.LeRobotDataset(
+            repo_id,
+            root=repo_id,  # Use the same local path as root
+            delta_timestamps={
+                key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
+            },
+        )
+    else:
+        dataset = lerobot_dataset.LeRobotDataset(
+            repo_id,
+            delta_timestamps={
+                key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
+            },
+        )
 
     if hasattr(dataset, "hf_dataset") and dataset.hf_dataset is not None:
         dataset.hf_dataset.set_transform(_hf_transform_to_torch_allow_dict)
@@ -208,6 +276,12 @@ def create_rlds_dataset(
 
 def transform_dataset(dataset: Dataset, data_config: _config.DataConfig, *, skip_norm_stats: bool = False) -> Dataset:
     """Transform the dataset by applying the data transforms."""
+    # ValueDataset already applies all necessary transforms internally
+    # (tokenization, image resizing, value remapping). Skip re-transforming.
+    from openpi.training.value_data_loader import ValueDataset as _VD
+    if isinstance(dataset, _VD):
+        return dataset
+
     norm_stats = {}
     if data_config.repo_id != "fake" and not skip_norm_stats:
         if data_config.norm_stats is None:
@@ -579,6 +653,9 @@ class DataLoaderImpl(DataLoader):
 
     def __iter__(self):
         for batch in self._data_loader:
+            if "actions" not in batch:
+                logging.error(f"BATCH KEYS: {list(batch.keys())}")
+                raise KeyError(f"actions not found in batch. Available keys: {list(batch.keys())}")
             yield _model.Observation.from_dict(batch), batch["actions"]
 
 

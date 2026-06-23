@@ -92,6 +92,8 @@ class DataConfig:
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
 
+    # Local data directory (used by value model training).
+    local_data_dir: str | None = None
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
     # Action space for DROID dataset.
@@ -669,7 +671,7 @@ class LeRobotRealmanTeleopDataConfig(DataConfigFactory):
 class LeRobotDROIDDataConfig(DataConfigFactory):
     """
     Example data config for custom DROID dataset in LeRobot format.
-    To convert your custom DROID dataset (<10s of hours) to LeRobot format, see examples/droid/convert_droid_data_to_lerobot.py
+    To convert your custom DROID dataset (<10s of hsrpo) to LeRobot format, see examples/droid/convert_droid_data_to_lerobot.py
     """
 
     @override
@@ -983,6 +985,35 @@ _CONFIGS = [
         ema_decay=None,
     ),
     TrainConfig(
+        name="pi05_libero_task7_sft",
+        project_name="pistar",
+        model=pi0_config.Pi0Config(pi05=True, pistar=False, action_horizon=15, discrete_state_input=False),
+        data=LeRobotLiberoDataConfig(
+            repo_id="/public/home/chenyuyao1/code/pistar/outputs/lerobot_policy_data/task7_demo",
+            assets=AssetsConfig(
+                assets_dir="/public/home/chenyuyao1/code/pistar/assets/pi05_star_libero",
+                asset_id="ybpy/libero_pistar",
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+        ),
+        batch_size=128,
+        fsdp_devices=8,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=10_000,
+            decay_lr=5e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("/public/home/chenyuyao1/model/pi05_base/params"),
+        num_train_steps=10_000,
+        save_interval=2_500,
+        keep_period=2_500,
+        log_interval=10,
+    ),
+    TrainConfig(
         name="pi05_libero",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
         data=LeRobotLiberoDataConfig(
@@ -1074,8 +1105,7 @@ _CONFIGS = [
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        # customized path: weight_loader=weight_loaders.CheckpointWeightLoader("/public/home/chenyuyao1/model/pi05_base/params")
+        weight_loader=weight_loaders.CheckpointWeightLoader("/public/home/chenyuyao1/model/pi05_base/params"),
         pytorch_weight_path="/path/to/your/pytorch_weight_path",
         num_train_steps=30_000,
         keep_period=10_000,
@@ -1131,6 +1161,58 @@ _CONFIGS = [
         pytorch_weight_path="/path/to/your/pytorch_weight_path",
         num_train_steps=30_000,
         keep_period=1000,
+    ),
+    # ── Smoke test: Pi05_star baseline (time-based value + sparse reward) ──
+    TrainConfig(
+        name="smoke_baseline",
+        project_name="pistar",
+        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=15, discrete_state_input=False),
+        data=LeRobotLiberoDataConfig(
+            repo_id="/public/home/chenyuyao1/code/pistar/outputs/lerobot_value_data/combined_baseline",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            adv_ind_dropout=True,
+        ),
+        batch_size=64,
+        fsdp_devices=2,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2.5e-5,
+            decay_steps=5_000,
+            decay_lr=2.5e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("/public/home/chenyuyao1/model/pi05_base/params"),
+        num_train_steps=5_000,
+        keep_period=1_000,
+        save_interval=1_000,
+    ),
+    # ── Smoke test: Pi05_star srpo-v1 (progress-based value + progress reward) ──
+    TrainConfig(
+        name="smoke_srpo",
+        project_name="pistar",
+        model=pi0_config.Pi0Config(pi05=True, pistar=True, action_horizon=15, discrete_state_input=False),
+        data=LeRobotLiberoDataConfig(
+            repo_id="/public/home/chenyuyao1/code/pistar/outputs/lerobot_value_data/combined_srpo_v2",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            adv_ind_dropout=True,
+        ),
+        batch_size=64,
+        fsdp_devices=2,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2.5e-5,
+            decay_steps=5_000,
+            decay_lr=2.5e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("/public/home/chenyuyao1/model/pi05_base/params"),
+        num_train_steps=5_000,
+        keep_period=1_000,
+        save_interval=1_000,
     ),
     # Pi05_star model inference on local toy dataset config
     TrainConfig(
@@ -1568,7 +1650,7 @@ _CONFIGS = [
     TrainConfig(
         # This config is for fine-tuning pi05-DROID on a custom (smaller) DROID dataset.
         # Here, we use LeRobot data format (like for all other fine-tuning examples)
-        # To convert your custom DROID dataset (<10s of hours) to LeRobot format, see examples/droid/convert_droid_data_to_lerobot.py
+        # To convert your custom DROID dataset (<10s of hsrpo) to LeRobot format, see examples/droid/convert_droid_data_to_lerobot.py
         name="pi05_droid_finetune",
         model=pi0_config.Pi0Config(
             pi05=True,

@@ -88,8 +88,10 @@ Features.from_arrow_schema = _patched_from_arrow_schema
 # Add project root to Python path to handle module import issues
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+src_root = project_root / "src"
+for path in (src_root, project_root):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 from openpi.shared import console
 from openpi.shared import progress
@@ -628,8 +630,7 @@ def _resolve_step_indices(df: pd.DataFrame) -> np.ndarray:
 
 
 def _resolve_dataset_row_indices(df: pd.DataFrame, flat_offset: int) -> np.ndarray:
-    if "index" in df.columns:
-        return _series_to_scalar_int_array(df["index"], name="index")
+    # Use contiguous indices (flat_offset + position) to avoid issues with non-contiguous 'index' column
     return np.arange(flat_offset, flat_offset + len(df), dtype=np.int64)
 
 

@@ -64,6 +64,7 @@ class Args:
     num_steps_wait: int = 10  # Number of steps to wait for objects to stabilize i n sim
     num_trials_per_task: int = 50  # Number of rollouts per task
     task_ids: Optional[list[int]] = None  # Specific task ids to evaluate and rollout (if None, evaluate all tasks in suite)
+    init_state_indices: Optional[list[int]] = None  # Restrict collection/evaluation to selected per-task init states
 
     #################################################################################################################
     # PI* specific parameters
@@ -173,6 +174,11 @@ class LiberoRolloutLeRobotWriter:
                     "shape": (1,),
                     "names": ["intervention_flag"],
                 },
+                "success": {
+                    "dtype": "bool",
+                    "shape": (1,),
+                    "names": ["success"],
+                },
                 "value_label": {
                     "dtype": "float32",
                     "shape": (1,),
@@ -213,6 +219,7 @@ class LiberoRolloutLeRobotWriter:
                 "state": step["state"],
                 "actions": step["actions"],
                 "intervention": np.asarray([0], dtype=np.int64),  # No manual intervention in LIBERO deployment
+                "success": np.asarray([success], dtype=np.bool_),
                 "value_label": np.asarray([value_labels[idx]], dtype=np.float32),
                 "reward": np.asarray([rewards[idx]], dtype=np.float32),
                 "reward_label": np.asarray([reward_labels[idx]], dtype=np.float32),
@@ -314,6 +321,10 @@ def eval_libero(args: Args) -> None:
         # Get default LIBERO initial states
         initial_states = task_suite.get_task_init_states(task_id)
         num_initial_states = len(initial_states)
+        init_state_indices = args.init_state_indices or list(range(num_initial_states))
+        invalid_init_indices = [idx for idx in init_state_indices if idx < 0 or idx >= num_initial_states]
+        if invalid_init_indices:
+            raise ValueError(f"Invalid init_state_indices for task {task_id}: {invalid_init_indices}; valid range is [0, {num_initial_states})")
 
         # Initialize LIBERO environment and task description
         env, task_description = _get_libero_env(task, LIBERO_ENV_RESOLUTION, args.seed)
@@ -328,7 +339,7 @@ def eval_libero(args: Args) -> None:
             action_plan = collections.deque()
 
             # Set initial states
-            obs = env.set_init_state(initial_states[episode_idx % num_initial_states])
+            obs = env.set_init_state(initial_states[init_state_indices[episode_idx % len(init_state_indices)]])
 
             # Setup
             t = 0

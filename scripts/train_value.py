@@ -17,9 +17,29 @@ if os.getenv("OPENPI_SILENCE_TF", "1") != "0":
     os.environ.setdefault("ABSL_LOG_SEVERITY_THRESHOLD", "3")
     os.environ.setdefault("GLOG_minloglevel", "3")
 
+# TensorFlow imported through Kauldron still references aliases removed by NumPy 2.
+import numpy as np
+
+if not hasattr(np, "complex_"):
+    np.complex_ = np.complex128
+if not hasattr(np, "float_"):
+    np.float_ = np.float64
+if not hasattr(np, "string_"):
+    np.string_ = np.bytes_
+if not hasattr(np, "unicode_"):
+    np.unicode_ = np.str_
+
 import argparse
 import dataclasses
 import functools
+import sys
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_SRC_ROOT = _PROJECT_ROOT / "src"
+if str(_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SRC_ROOT))
+
 import logging
 from pathlib import Path
 import platform
@@ -35,7 +55,6 @@ import flax.nnx as nnx
 from flax.training import common_utils
 import jax
 import jax.numpy as jnp
-import numpy as np
 import optax
 import tqdm_loggable.auto as tqdm
 
@@ -74,6 +93,7 @@ def _resolve_local_gemma_tokenizer_path(tokenizer_path: str | None) -> str | Non
     candidates.extend(
         [
             repo_root / "gemma" / "tokenizer.model",
+            Path("/public/home/chenyuyao1/.cache/openpi/big_vision/paligemma_tokenizer.model"),
             Path("/public/home/wangsenbao_it/litianheng/checkpoint/tokenizer.model"),
             Path("/public/home/wangsenbao_it/litianheng/checkpoint/gemma-3-270m/tokenizer.model"),
             Path("/data/train_dataset/checkpoint/gemma-3-270m/tokenizer.model"),
@@ -208,6 +228,10 @@ def init_logging():
     logger.setLevel(logging.INFO)
     if logger.handlers:
         logger.handlers[0].setFormatter(formatter)
+    else:
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
 
 def _wandb_sanitize_config(config: dict) -> dict:
@@ -561,6 +585,7 @@ def main():
 
         wandb_config = _wandb_sanitize_config({**vars(args), **dataclasses.asdict(config)})
         tags = [t for t in args.wandb_tags.split(",") if t] if args.wandb_tags else None
+        wandb_init_timeout = int(os.getenv("WANDB_INIT_TIMEOUT", "300"))
         wandb_run = wandb.init(
             project=args.wandb_project,
             entity=args.wandb_entity,
@@ -568,6 +593,7 @@ def main():
             mode=args.wandb_mode,
             config=wandb_config,
             tags=tags,
+            settings=wandb.Settings(init_timeout=wandb_init_timeout),
         )
         wandb.define_metric("step")
         wandb.define_metric("train/*", step_metric="step")
