@@ -250,6 +250,7 @@ class TokenizePrompt(DataTransformFn):
     discrete_state_input: bool = False
     adv_ind_input: bool = False
     adv_ind_dropout: bool = True
+    adv_guidance_input: bool = False
 
     def __call__(self, data: DataDict) -> DataDict:
         if (prompt := data.pop("prompt", None)) is None:
@@ -272,9 +273,21 @@ class TokenizePrompt(DataTransformFn):
 
         if not isinstance(prompt, str):
             prompt = prompt.item()
+        if adv_ind is not None and not isinstance(adv_ind, str):
+            adv_ind = adv_ind.item()
 
         tokens, token_masks = self.tokenizer.tokenize(prompt, state, adv_ind, adv_ind_dropout=self.adv_ind_dropout)
-        return {**data, "tokenized_prompt": tokens, "tokenized_prompt_mask": token_masks}
+        result = {**data, "tokenized_prompt": tokens, "tokenized_prompt_mask": token_masks}
+        if self.adv_guidance_input and adv_ind is not None:
+            uncond_tokens, uncond_token_masks = self.tokenizer.tokenize(
+                prompt,
+                state,
+                None,
+                adv_ind_dropout=False,
+            )
+            result["tokenized_prompt_uncond"] = uncond_tokens
+            result["tokenized_prompt_uncond_mask"] = uncond_token_masks
+        return result
 
 
 @dataclasses.dataclass(frozen=True)

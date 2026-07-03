@@ -30,6 +30,8 @@ class Pi0Config(_model.BaseModelConfig):
     # - the action expert uses adaRMSNorm to inject the flow matching timestep
     pi05: bool = False
     pistar: bool = False
+    # PiStar inference guidance scale for combining conditional and dropped-advantage velocities.
+    adv_guidance_beta: float = 2.0
     # This config option is not used directly by the model, but it is read by the ModelTransformFactory.
     discrete_state_input: bool = None  # type: ignore
 
@@ -60,20 +62,31 @@ class Pi0Config(_model.BaseModelConfig):
         image_mask_spec = jax.ShapeDtypeStruct([batch_size], jnp.bool_)
 
         with at.disable_typechecking():
-            observation_spec = _model.Observation(
-                images={
+            observation_kwargs = {
+                "images": {
                     "base_0_rgb": image_spec,
                     "left_wrist_0_rgb": image_spec,
                     "right_wrist_0_rgb": image_spec,
                 },
-                image_masks={
+                "image_masks": {
                     "base_0_rgb": image_mask_spec,
                     "left_wrist_0_rgb": image_mask_spec,
                     "right_wrist_0_rgb": image_mask_spec,
                 },
-                state=jax.ShapeDtypeStruct([batch_size, self.action_dim], jnp.float32),
-                tokenized_prompt=jax.ShapeDtypeStruct([batch_size, self.max_token_len], jnp.int32),
-                tokenized_prompt_mask=jax.ShapeDtypeStruct([batch_size, self.max_token_len], bool),
+                "state": jax.ShapeDtypeStruct([batch_size, self.action_dim], jnp.float32),
+                "tokenized_prompt": jax.ShapeDtypeStruct([batch_size, self.max_token_len], jnp.int32),
+                "tokenized_prompt_mask": jax.ShapeDtypeStruct([batch_size, self.max_token_len], bool),
+            }
+            if self.pistar and self.adv_guidance_beta != 1.0:
+                observation_kwargs["tokenized_prompt_uncond"] = jax.ShapeDtypeStruct(
+                    [batch_size, self.max_token_len], jnp.int32
+                )
+                observation_kwargs["tokenized_prompt_uncond_mask"] = jax.ShapeDtypeStruct(
+                    [batch_size, self.max_token_len], bool
+                )
+
+            observation_spec = _model.Observation(
+                **observation_kwargs,
             )
         action_spec = jax.ShapeDtypeStruct([batch_size, self.action_horizon, self.action_dim], jnp.float32)
 

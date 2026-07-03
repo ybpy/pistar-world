@@ -33,7 +33,6 @@ class ModelType(enum.Enum):
     PI0 = "pi0"
     PI0_FAST = "pi0_fast"
     PI05 = "pi05"
-    VALUE = "value"
 
 
 # The model always expects these images
@@ -67,6 +66,8 @@ IMAGE_RESOLUTION = (224, 224)
 #     "state": float32[*b, s],  # Low-dimensional robot state
 #     "tokenized_prompt": int32[*b, l],  # Optional, tokenized language prompt
 #     "tokenized_prompt_mask": bool[*b, l],  # Optional, mask for tokenized prompt
+#     "tokenized_prompt_uncond": int32[*b, l],  # Optional, prompt with dropped advantage condition
+#     "tokenized_prompt_uncond_mask": bool[*b, l],  # Optional, mask for dropped-advantage prompt
 #     "token_ar_mask": int32[*b, l],  # Optional, autoregressive mask for FAST model
 #     "token_loss_mask": bool[*b, l],  # Optional, loss mask for FAST model
 #
@@ -99,6 +100,10 @@ class Observation(Generic[ArrayT]):
     tokenized_prompt: at.Int[ArrayT, "*b l"] | None = None
     # Tokenized prompt mask.
     tokenized_prompt_mask: at.Bool[ArrayT, "*b l"] | None = None
+    # Tokenized prompt with advantage conditioning removed, used for PiStar guidance at inference time.
+    tokenized_prompt_uncond: at.Int[ArrayT, "*b l"] | None = None
+    # Tokenized prompt mask for the unconditional PiStar guidance prompt.
+    tokenized_prompt_uncond_mask: at.Bool[ArrayT, "*b l"] | None = None
 
     # pi0-fast model specific fields.
 
@@ -113,6 +118,8 @@ class Observation(Generic[ArrayT]):
         # Ensure that tokenized_prompt and tokenized_prompt_mask are provided together.
         if ("tokenized_prompt" in data) != ("tokenized_prompt_mask" in data):
             raise ValueError("tokenized_prompt and tokenized_prompt_mask must be provided together.")
+        if ("tokenized_prompt_uncond" in data) != ("tokenized_prompt_uncond_mask" in data):
+            raise ValueError("tokenized_prompt_uncond and tokenized_prompt_uncond_mask must be provided together.")
         # If images are uint8, convert them to [-1, 1] float32.
         for key in data["image"]:
             if data["image"][key].dtype == np.uint8:
@@ -125,6 +132,8 @@ class Observation(Generic[ArrayT]):
             state=data["state"],
             tokenized_prompt=data.get("tokenized_prompt"),
             tokenized_prompt_mask=data.get("tokenized_prompt_mask"),
+            tokenized_prompt_uncond=data.get("tokenized_prompt_uncond"),
+            tokenized_prompt_uncond_mask=data.get("tokenized_prompt_uncond_mask"),
             token_ar_mask=data.get("token_ar_mask"),
             token_loss_mask=data.get("token_loss_mask"),
         )
@@ -204,6 +213,8 @@ def preprocess_observation(
         state=observation.state,
         tokenized_prompt=observation.tokenized_prompt,
         tokenized_prompt_mask=observation.tokenized_prompt_mask,
+        tokenized_prompt_uncond=observation.tokenized_prompt_uncond,
+        tokenized_prompt_uncond_mask=observation.tokenized_prompt_uncond_mask,
         token_ar_mask=observation.token_ar_mask,
         token_loss_mask=observation.token_loss_mask,
     )

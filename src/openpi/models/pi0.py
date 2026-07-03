@@ -68,6 +68,7 @@ class Pi0(_model.BaseModel):
         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
         self.pi05 = config.pi05
         self.pistar = config.pistar
+        self.adv_guidance_beta = config.adv_guidance_beta
         paligemma_config = _gemma.get_config(config.paligemma_variant)
         action_expert_config = _gemma.get_config(config.action_expert_variant)
         # TODO: rewrite gemma in NNX. For now, use bridge.
@@ -234,8 +235,11 @@ class Pi0(_model.BaseModel):
         *,
         num_steps: int | at.Int[at.Array, ""] = 10,
         noise: at.Float[at.Array, "b ah ad"] | None = None,
+        adv_guidance_beta: float | at.Float[at.Array, ""] | None = None,
     ) -> _model.Actions:
         observation = _model.preprocess_observation(None, observation, train=False)
+        if adv_guidance_beta is None:
+            adv_guidance_beta = self.adv_guidance_beta
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
         dt = -1.0 / num_steps
@@ -243,14 +247,24 @@ class Pi0(_model.BaseModel):
         if noise is None:
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
-        # first fill KV cache with a forward pass of the prefix
-        prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
-        prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
-        positions = jnp.cumsum(prefix_mask, axis=1) - 1
-        _, kv_cache = self.PaliGemma.llm([prefix_tokens, None], mask=prefix_attn_mask, positions=positions)
+        # First fill KV cache with a forward pass of the prefix.
+        def encode_prefix(prefix_observation):
+            prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(prefix_observation)
+            prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
+            positions = jnp.cumsum(prefix_mask, axis=1) - 1
+            _, kv_cache = self.PaliGemma.llm([prefix_tokens, None], mask=prefix_attn_mask, positions=positions)
+            return prefix_tokens, prefix_mask, kv_cache
 
-        def step(carry):
-            x_t, time = carry
+        prefix_tokens, prefix_mask, kv_cache = encode_prefix(observation)
+        use_adv_guidance = self.pistar and observation.tokenized_prompt_uncond is not None
+        if use_adv_guidance:
+            uncond_observation = observation.replace(
+                tokenized_prompt=observation.tokenized_prompt_uncond,
+                tokenized_prompt_mask=observation.tokenized_prompt_uncond_mask,
+            )
+            uncond_prefix_tokens, uncond_prefix_mask, uncond_kv_cache = encode_prefix(uncond_observation)
+
+        def denoise(prefix_tokens, prefix_mask, kv_cache, x_t, time):
             suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
                 observation, x_t, jnp.broadcast_to(time, batch_size)
             )
@@ -280,6 +294,15 @@ class Pi0(_model.BaseModel):
             )
             assert prefix_out is None
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+
+            return v_t
+
+        def step(carry):
+            x_t, time = carry
+            v_t = denoise(prefix_tokens, prefix_mask, kv_cache, x_t, time)
+            if use_adv_guidance:
+                v_uncond = denoise(uncond_prefix_tokens, uncond_prefix_mask, uncond_kv_cache, x_t, time)
+                v_t = v_uncond + adv_guidance_beta * (v_t - v_uncond)
 
             return x_t + dt * v_t, time + dt
 
