@@ -112,6 +112,16 @@ class InjectDefaultPrompt(DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
+class InjectDefaultAdvInd(DataTransformFn):
+    adv_ind: str | None
+
+    def __call__(self, data: DataDict) -> DataDict:
+        if self.adv_ind is not None and "adv_ind" not in data:
+            data["adv_ind"] = self.adv_ind
+        return data
+
+
+@dataclasses.dataclass(frozen=True)
 class Normalize(DataTransformFn):
     norm_stats: at.PyTree[NormStats] | None
     # If true, will use quantile normalization. Otherwise, normal z-score normalization will be used.

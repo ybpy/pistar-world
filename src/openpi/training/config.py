@@ -140,6 +140,7 @@ class ModelTransformFactory(GroupFactory):
                             discrete_state_input=model_config.discrete_state_input,
                             adv_ind_input=model_config.pistar,
                             adv_ind_dropout=self.adv_ind_dropout,
+                            adv_guidance_input=model_config.pistar and model_config.adv_guidance_beta != 1.0,
                         ),
                         _transforms.PadStatesAndActions(model_config.action_dim),
                     ],
@@ -348,6 +349,7 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
 
     extra_delta_transform: bool = False
     adv_ind_dropout: bool = True # Set to True during training to apply adv_ind dropout in model transforms
+    default_adv_ind: str | None = None
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -400,6 +402,8 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
             inputs=[libero_policy.LiberoInputs(model_type=model_config.model_type)],
             outputs=[libero_policy.LiberoOutputs()],
         )
+        if self.default_adv_ind is not None:
+            data_transforms = data_transforms.push(inputs=[_transforms.InjectDefaultAdvInd(self.default_adv_ind)])
 
         # One additional data transform: pi0 models are trained on delta actions (relative to the first
         # state in each action chunk). IF your data has ``absolute`` actions (e.g. target joint angles)

@@ -90,15 +90,7 @@ def _resolve_local_gemma_tokenizer_path(tokenizer_path: str | None) -> str | Non
             candidates.append(Path(raw).expanduser())
 
     repo_root = Path(__file__).resolve().parent.parent
-    candidates.extend(
-        [
-            repo_root / "gemma" / "tokenizer.model",
-            Path("/public/home/chenyuyao1/.cache/openpi/big_vision/paligemma_tokenizer.model"),
-            Path("/public/home/wangsenbao_it/litianheng/checkpoint/tokenizer.model"),
-            Path("/public/home/wangsenbao_it/litianheng/checkpoint/gemma-3-270m/tokenizer.model"),
-            Path("/data/train_dataset/checkpoint/gemma-3-270m/tokenizer.model"),
-        ]
-    )
+    candidates.append(repo_root / "gemma" / "tokenizer.model")
 
     for candidate in candidates:
         if candidate.exists():
@@ -737,11 +729,17 @@ def main():
             )
         logging.info("\033[1;32mFSDP分片完成\033[0m")
     else:
-        # 单卡：复制到所有设备
-        train_state = jax.tree.map(
-            lambda x: jax.device_put(x, replicated_sharding), 
+        # 单卡：只把数组叶子放到设备上，避免把 TrainState 本身当作数组。
+        put_leaf = lambda x: jax.device_put(x, replicated_sharding) if hasattr(x, "shape") else x
+        train_state = dataclasses.replace(
             train_state,
-            is_leaf=lambda x: hasattr(x, 'shape')
+            params=jax.tree.map(put_leaf, train_state.params, is_leaf=lambda x: hasattr(x, "shape")),
+            opt_state=jax.tree.map(put_leaf, train_state.opt_state, is_leaf=lambda x: hasattr(x, "shape")),
+            ema_params=(
+                jax.tree.map(put_leaf, train_state.ema_params, is_leaf=lambda x: hasattr(x, "shape"))
+                if train_state.ema_params is not None
+                else None
+            ),
         )
 
     @functools.partial(

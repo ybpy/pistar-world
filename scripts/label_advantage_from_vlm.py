@@ -240,14 +240,7 @@ def _resolve_local_gemma_tokenizer_path(tokenizer_path: str | None) -> str | Non
             candidates.append(Path(raw).expanduser())
 
     repo_root = Path(__file__).resolve().parent.parent
-    candidates.extend(
-        [
-            repo_root / "gemma" / "tokenizer.model",
-            Path("/public/home/wangsenbao_it/litianheng/checkpoint/tokenizer.model"),
-            Path("/public/home/wangsenbao_it/litianheng/checkpoint/gemma-3-270m/tokenizer.model"),
-            Path("/data/train_dataset/checkpoint/gemma-3-270m/tokenizer.model"),
-        ]
-    )
+    candidates.append(repo_root / "gemma" / "tokenizer.model")
 
     for candidate in candidates:
         if candidate.exists():
@@ -904,6 +897,8 @@ def _build_pending_label_requests(
     reward_col: str | None,
     human_col: str | None,
     lookahead: int,
+    episode_shard_index: int = 0,
+    episode_num_shards: int = 1,
 ) -> tuple[list[PendingLabelRequest], list[int], int, int, int]:
     requests: list[PendingLabelRequest] = []
     selected_dataset_indices: set[int] = set()
@@ -946,6 +941,9 @@ def _build_pending_label_requests(
 
         rollout_rows += len(df)
         episode_id = _extract_episode_id(df, fallback_episode_id)
+        if episode_num_shards > 1 and episode_id % episode_num_shards != episode_shard_index:
+            flat_offset += len(df)
+            continue
         step_indices = _resolve_step_indices(df)
         dataset_row_indices = _resolve_dataset_row_indices(df, flat_offset)
 
@@ -1002,6 +1000,8 @@ def main() -> None:
     parser.add_argument("--human_col", type=str, default="intervention", help="Human intervention flag column name (default: 'intervention')")
     parser.add_argument("--instruction_col", type=str, default=None, help="Instruction/prompt column name to read")
     parser.add_argument("--adv_col", type=str, default="adv_ind", help="Advantage indicator column name to create")
+    parser.add_argument("--episode_shard_index", type=int, default=0, help="Only label episodes where episode_index %% episode_num_shards equals this value")
+    parser.add_argument("--episode_num_shards", type=int, default=1, help="Number of episode shards for parallel labeling")
     parser.add_argument("--base_image_col", type=str, default="image", help="Base image column name")
     parser.add_argument("--wrist_image_col", type=str, default="wrist_image", help="Wrist image column name")
     parser.add_argument("--right_wrist_image_col", type=str, default=None, help="Right wrist image column name")
@@ -1014,6 +1014,10 @@ def main() -> None:
     args = parser.parse_args()
     if not 0.0 < args.top_percent <= 100.0:
         parser.error("--top_percent must be in (0, 100]")
+    if args.episode_num_shards < 1:
+        parser.error("--episode_num_shards must be >= 1")
+    if not 0 <= args.episode_shard_index < args.episode_num_shards:
+        parser.error("--episode_shard_index must be in [0, episode_num_shards)")
 
     logging.basicConfig(level=logging.INFO, force=True)
     cache_dir = os.environ.get("JAX_COMPILATION_CACHE_DIR")
@@ -1035,9 +1039,18 @@ def main() -> None:
         reward_col=args.reward_col,
         human_col=args.human_col,
         lookahead=args.lookahead,
+        episode_shard_index=args.episode_shard_index,
+        episode_num_shards=args.episode_num_shards,
     )
 
-    LOG.info("数据集总帧数: %d, 跳过 demo 帧数: %d, 待更新 rollout 帧数: %d", total_rows, demo_rows, rollout_rows)
+    LOG.info(
+        "数据集总帧数: %d, 跳过 demo 帧数: %d, 待更新 rollout 帧数: %d, episode shard=%d/%d",
+        total_rows,
+        demo_rows,
+        rollout_rows,
+        args.episode_shard_index,
+        args.episode_num_shards,
+    )
     if rollout_rows == 0:
         print(console.ok("完成: 未发现 rollout 帧，无需执行 VLM 推理"))
         return
